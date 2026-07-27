@@ -135,8 +135,14 @@ export default function RecorderPage({ activeSpeaker, onToast, onCountUpdate }) 
       elapsedRef.current = 0;
       setElapsed(0);
       setRecording(true);
-    } catch {
-      onToast('Microphone access denied', 'error');
+    } catch (err) {
+      const needsHttps = !window.isSecureContext;
+      onToast(
+        needsHttps
+          ? 'Microphone needs HTTPS — open https://' + window.location.host
+          : 'Microphone access denied — allow mic in browser settings',
+        'error'
+      );
     }
   }, [activeSpeaker, emotion, onToast, onCountUpdate]);
 

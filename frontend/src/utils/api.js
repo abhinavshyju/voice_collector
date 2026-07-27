@@ -1,8 +1,11 @@
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+const TOKEN_KEY = 'voice_collector_token';
 
 const EMOTIONS = [
   'neutral', 'happy', 'sad', 'angry', 'fearful', 'surprised', 'disgusted', 'calm',
 ];
+
+let onUnauthorized = null;
 
 function formatError(detail) {
   if (typeof detail === 'string') return detail;
@@ -11,11 +14,35 @@ function formatError(detail) {
   return 'Request failed';
 }
 
+export function getToken() {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setToken(token) {
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
+}
+
+export function setOnUnauthorized(callback) {
+  onUnauthorized = callback;
+}
+
 async function request(path, options = {}) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    ...options,
-  });
+  const headers = { ...options.headers };
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (!(options.body instanceof FormData)) {
+    headers['Content-Type'] = headers['Content-Type'] || 'application/json';
+  }
+
+  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+
+  if (res.status === 401) {
+    setToken(null);
+    onUnauthorized?.();
+    throw new Error('Session expired. Please log in again.');
+  }
+
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(formatError(err.detail));
@@ -26,6 +53,13 @@ async function request(path, options = {}) {
 export { EMOTIONS };
 
 export const api = {
+  // Auth
+  login: (username, password) =>
+    request('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  signup: (name, username, password) =>
+    request('/auth/signup', { method: 'POST', body: JSON.stringify({ name, username, password }) }),
+  getMe: () => request('/auth/me'),
+
   // Speakers
   getSpeakers: () => request('/speakers'),
   createSpeaker: (data) => request('/speakers', { method: 'POST', body: JSON.stringify(data) }),
@@ -37,7 +71,15 @@ export const api = {
     form.append('speaker_id', speakerId);
     form.append('audio', audioBlob, 'recording.webm');
     form.append('emotion', emotion);
-    return fetch(`${API_BASE}/recordings`, { method: 'POST', body: form }).then(async (r) => {
+    const headers = {};
+    const token = getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return fetch(`${API_BASE}/recordings`, { method: 'POST', body: form, headers }).then(async (r) => {
+      if (r.status === 401) {
+        setToken(null);
+        onUnauthorized?.();
+        throw new Error('Session expired. Please log in again.');
+      }
       if (!r.ok) {
         const err = await r.json().catch(() => ({ detail: r.statusText }));
         throw new Error(formatError(err.detail) || 'Upload failed');

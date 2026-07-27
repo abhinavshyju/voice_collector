@@ -2,13 +2,31 @@ services:
   voice-collector:
     build: .
     ports:
-      - "8080:80"
+      - "80:80"
+      - "443:443"
     volumes:
       - voice-data:/app/backend/data
+      - ssl-certs:/etc/nginx/ssl
+      - certbot-www:/var/www/certbot
+      - letsencrypt:/etc/letsencrypt:ro
     environment:
       - TORCH_NUM_THREADS=2
       - WHISPER_MODEL=abhinav-spidey/Whisper-ml-v1
+      - SSL_DOMAIN=vc.ratcat.in
+      - SSL_SAN=DNS:localhost,DNS:vc.ratcat.in,DNS:ec2-13-60-215-83.eu-north-1.compute.amazonaws.com,IP:13.60.215.83
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
     restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - certbot-www:/var/www/certbot
+      - letsencrypt:/etc/letsencrypt
+    profiles:
+      - tools
 
 volumes:
   voice-data:
+  ssl-certs:
+  certbot-www:
+  letsencrypt:

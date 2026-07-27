@@ -22,7 +22,7 @@ FROM python:3.13-slim AS runtime
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg nginx curl \
+    ffmpeg nginx curl openssl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
@@ -38,9 +38,9 @@ RUN chmod +x /docker-entrypoint.sh \
 ENV TORCH_NUM_THREADS=2
 ENV WHISPER_MODEL=abhinav-spidey/Whisper-ml-v1
 
-EXPOSE 80
+EXPOSE 80 443
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-  CMD curl -f http://localhost/api/recordings/count || exit 1
+  CMD curl -fk https://localhost/api/health || exit 1
 
 ENTRYPOINT ["/docker-entrypoint.sh"]

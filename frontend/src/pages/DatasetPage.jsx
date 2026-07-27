@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../utils/api';
 import AudioPlayer from '../components/AudioPlayer';
 import TranslitTextarea from '../components/TranslitTextarea';
+import ConfirmModal from '../components/ConfirmModal';
 
 export default function DatasetPage({ onToast }) {
   const [recordings, setRecordings] = useState([]);
@@ -11,6 +12,7 @@ export default function DatasetPage({ onToast }) {
   const [editText, setEditText] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState({ hf_token: '', hf_repo: '' });
+  const [confirmDelete, setConfirmDelete] = useState({ isOpen: false, id: null });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -71,7 +73,14 @@ export default function DatasetPage({ onToast }) {
     }
   };
 
-  const deleteRec = async (id) => {
+  const handleDeleteClick = (id) => {
+    setConfirmDelete({ isOpen: true, id });
+  };
+
+  const handleConfirmDelete = async () => {
+    const id = confirmDelete.id;
+    setConfirmDelete({ isOpen: false, id: null });
+    if (!id) return;
     try {
       await api.deleteRecording(id);
       setRecordings(prev => prev.filter(r => r.id !== id));
@@ -112,35 +121,122 @@ export default function DatasetPage({ onToast }) {
           <p>Accept recordings from the Review Queue to build your dataset.</p>
         </div>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table className="dataset-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Audio</th>
-                <th>Duration</th>
-                <th>Emotion</th>
-                <th>Speaker</th>
-                <th style={{ minWidth: 250 }}>Transcript</th>
-                <th>Synced</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {recordings.map((rec, i) => (
-                <tr key={rec.id}>
-                  <td style={{ color: 'var(--text-muted)' }}>{i + 1}</td>
-                  <td><AudioPlayer recordingId={rec.id} /></td>
-                  <td>
-                    <span className={`duration-badge ${rec.duration >= 8 && rec.duration <= 12 ? 'duration-ideal' : rec.duration >= 3 ? 'duration-warn' : 'duration-error'}`}>
-                      {rec.duration?.toFixed(1)}s
+        <>
+          {/* Desktop Table View */}
+          <div className="dataset-desktop-view" style={{ overflowX: 'auto' }}>
+            <table className="dataset-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Audio</th>
+                  <th>Duration</th>
+                  <th>Emotion</th>
+                  <th>Speaker</th>
+                  <th style={{ minWidth: 250 }}>Transcript</th>
+                  <th>Synced</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {recordings.map((rec, i) => (
+                  <tr key={rec.id}>
+                    <td style={{ color: 'var(--text-muted)' }}>{i + 1}</td>
+                    <td><AudioPlayer recordingId={rec.id} /></td>
+                    <td>
+                      <span className={`duration-badge ${rec.duration >= 8 && rec.duration <= 12 ? 'duration-ideal' : rec.duration >= 3 ? 'duration-warn' : 'duration-error'}`}>
+                        {rec.duration?.toFixed(1)}s
+                      </span>
+                    </td>
+                    <td><span className="emotion-badge">{rec.emotion || 'neutral'}</span></td>
+                    <td style={{ fontSize: 13 }}>{rec.speaker_name || rec.speaker_id}</td>
+                    <td>
+                      {editId === rec.id ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          <TranslitTextarea value={editText} onChange={setEditText} rows={2} />
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button className="btn btn-success btn-sm" onClick={() => saveTranscript(rec.id)}>Save</button>
+                            <button className="btn btn-ghost btn-sm" onClick={() => setEditId(null)}>Cancel</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <span
+                          className="inline-edit"
+                          style={{ cursor: 'pointer', display: 'block' }}
+                          onClick={() => { setEditId(rec.id); setEditText(rec.final_transcript || ''); }}
+                          title="Click to edit"
+                        >
+                          {rec.final_transcript || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Empty</span>}
+                        </span>
+                      )}
+                    </td>
+                    <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                      {rec.synced_at ? new Date(rec.synced_at).toLocaleDateString() : '—'}
+                    </td>
+                    <td>
+                      <button
+                        className="btn btn-danger btn-sm btn-icon"
+                        style={{ width: '28px', height: '28px', borderRadius: '50%' }}
+                        onClick={() => handleDeleteClick(rec.id)}
+                        title="Remove"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="18" y1="6" x2="6" y2="18"></line>
+                          <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Cards View */}
+          <div className="dataset-mobile-view">
+            {recordings.map((rec, i) => (
+              <div key={rec.id} className="dataset-card">
+                <div className="dataset-card-header">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ color: 'var(--text-muted)', fontWeight: 'bold' }}>#{i + 1}</span>
+                    <AudioPlayer recordingId={rec.id} />
+                  </div>
+                  <button
+                    className="btn btn-danger btn-sm btn-icon"
+                    style={{ width: '28px', height: '28px', borderRadius: '50%' }}
+                    onClick={() => handleDeleteClick(rec.id)}
+                    title="Remove"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18"></line>
+                      <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                  </button>
+                </div>
+
+                <div className="dataset-card-body">
+                  <div className="dataset-card-row">
+                    <span className="label">Speaker</span>
+                    <span className="value" style={{ fontSize: '13px' }}>{rec.speaker_name || rec.speaker_id}</span>
+                  </div>
+                  <div className="dataset-card-row">
+                    <span className="label">Specs</span>
+                    <div className="value" style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                      <span className={`duration-badge ${rec.duration >= 8 && rec.duration <= 12 ? 'duration-ideal' : rec.duration >= 3 ? 'duration-warn' : 'duration-error'}`}>
+                        {rec.duration?.toFixed(1)}s
+                      </span>
+                      <span className="emotion-badge">{rec.emotion || 'neutral'}</span>
+                    </div>
+                  </div>
+                  <div className="dataset-card-row">
+                    <span className="label">Synced</span>
+                    <span className="value" style={{ color: 'var(--text-muted)' }}>
+                      {rec.synced_at ? new Date(rec.synced_at).toLocaleDateString() : '—'}
                     </span>
-                  </td>
-                  <td><span className="emotion-badge">{rec.emotion || 'neutral'}</span></td>
-                  <td style={{ fontSize: 13 }}>{rec.speaker_name || rec.speaker_id}</td>
-                  <td>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
+                    <span className="label" style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Transcript</span>
                     {editId === rec.id ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         <TranslitTextarea value={editText} onChange={setEditText} rows={2} />
                         <div style={{ display: 'flex', gap: 6 }}>
                           <button className="btn btn-success btn-sm" onClick={() => saveTranscript(rec.id)}>Save</button>
@@ -150,25 +246,27 @@ export default function DatasetPage({ onToast }) {
                     ) : (
                       <span
                         className="inline-edit"
-                        style={{ cursor: 'pointer', display: 'block' }}
+                        style={{ cursor: 'pointer', display: 'block', padding: '6px 8px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: '6px' }}
                         onClick={() => { setEditId(rec.id); setEditText(rec.final_transcript || ''); }}
                         title="Click to edit"
                       >
                         {rec.final_transcript || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Empty</span>}
                       </span>
                     )}
-                  </td>
-                  <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-                    {rec.synced_at ? new Date(rec.synced_at).toLocaleDateString() : '—'}
-                  </td>
-                  <td>
-                    <button className="btn btn-danger btn-sm" onClick={() => deleteRec(rec.id)} title="Remove">✕</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <ConfirmModal
+            isOpen={confirmDelete.isOpen}
+            title="Remove from Dataset"
+            message="Are you sure you want to remove this recording from the dataset? This action is permanent."
+            onConfirm={handleConfirmDelete}
+            onCancel={() => setConfirmDelete({ isOpen: false, id: null })}
+          />
+        </>
       )}
 
       {showSettings && (

@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { api } from '../utils/api';
+import ConfirmModal from '../components/ConfirmModal';
 
-export default function SpeakersPage({ activeSpeaker, onSelectSpeaker, onToast }) {
+export default function SpeakersPage({ activeSpeaker, onSelectSpeaker, onToast, isAdmin }) {
   const [speakers, setSpeakers] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ name: '', age: '', gender: '', district: '' });
   const [loading, setLoading] = useState(true);
+  const [confirmDelete, setConfirmDelete] = useState({ isOpen: false, id: null, name: '' });
 
   const load = async () => {
     setLoading(true);
@@ -30,14 +32,20 @@ export default function SpeakersPage({ activeSpeaker, onSelectSpeaker, onToast }
     } catch (err) { onToast?.(err.message, 'error'); }
   };
 
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this speaker and all their recordings?')) return;
+  const handleDeleteClick = (s) => {
+    setConfirmDelete({ isOpen: true, id: s.id, name: s.name });
+  };
+
+  const handleConfirmDelete = async () => {
+    const id = confirmDelete.id;
+    setConfirmDelete({ isOpen: false, id: null, name: '' });
+    if (!id) return;
     try {
       await api.deleteSpeaker(id);
       setSpeakers(prev => prev.filter(s => s.id !== id));
       onToast?.('Speaker deleted', 'success');
+      if (activeSpeaker?.id === id) onSelectSpeaker(null);
     } catch (err) { onToast?.(err.message, 'error'); }
-    if (activeSpeaker?.id === id) onSelectSpeaker(null);
   };
 
   return (
@@ -79,16 +87,27 @@ export default function SpeakersPage({ activeSpeaker, onSelectSpeaker, onToast }
                 <div>
                   <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>{s.name}</h3>
                   <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                    {isAdmin && s.owner_username && (
+                      <span className="info" style={{ fontSize: 12, color: 'var(--accent)' }}>
+                        Owner: {s.owner_name || s.owner_username} (@{s.owner_username})
+                      </span>
+                    )}
                     {s.age && <span className="info" style={{ fontSize: 12, color: 'var(--text-muted)' }}>Age: {s.age}</span>}
                     {s.gender && <span className="info" style={{ fontSize: 12, color: 'var(--text-muted)' }}>{s.gender}</span>}
                     {s.district && <span className="info" style={{ fontSize: 12, color: 'var(--text-muted)' }}>{s.district}</span>}
                   </div>
                 </div>
                 <button
-                  className="btn btn-danger btn-sm"
-                  onClick={(e) => { e.stopPropagation(); handleDelete(s.id); }}
+                  className="btn btn-danger btn-sm btn-icon"
+                  style={{ width: '28px', height: '28px', borderRadius: '50%' }}
+                  onClick={(e) => { e.stopPropagation(); handleDeleteClick(s); }}
                   title="Delete"
-                >✕</button>
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                  </svg>
+                </button>
               </div>
               {activeSpeaker?.id === s.id && (
                 <div className="speaker-badge" style={{ marginTop: 12 }}>
@@ -137,6 +156,14 @@ export default function SpeakersPage({ activeSpeaker, onSelectSpeaker, onToast }
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={confirmDelete.isOpen}
+        title="Delete Speaker"
+        message={`Are you sure you want to delete ${confirmDelete.name}? This will permanently remove the speaker and all of their recordings. This action cannot be undone.`}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setConfirmDelete({ isOpen: false, id: null, name: '' })}
+      />
     </div>
   );
 }

@@ -6,12 +6,13 @@ import tempfile
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, BackgroundTasks, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 import db
+import auth
 import audio_processor
 import transcriber
 import hf_sync
@@ -43,6 +44,32 @@ app.add_middleware(
 
 # ── Pydantic Models ────────────────────────────────────────────────────────
 
+class SignupRequest(BaseModel):
+    name: str
+    username: str
+    password: str
+
+    @field_validator("username")
+    @classmethod
+    def username_min_length(cls, v: str) -> str:
+        v = v.strip()
+        if len(v) < 3:
+            raise ValueError("Username must be at least 3 characters")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def password_min_length(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        return v
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
 class SpeakerCreate(BaseModel):
     name: str
     age: int | None = None
@@ -61,23 +88,71 @@ class SettingsUpdate(BaseModel):
     hf_repo: str | None = None
 
 
+def _ctx(current_user: dict) -> dict:
+    return auth.user_context(current_user)
+
+
+# ── Health ───────────────────────────────────────────────────────────────────
+
+@app.get("/health")
+def health():
+    return {"ok": True}
+
+
+# ── Auth Endpoints ───────────────────────────────────────────────────────────
+
+@app.post("/auth/signup")
+def signup(data: SignupRequest):
+    try:
+        user = db.create_user(
+            name=data.name.strip(),
+            username=data.username.strip(),
+            password_hash=auth.hash_password(data.password),
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    token = auth.create_access_token(user["id"], bool(user.get("is_admin")))
+    return {"token": token, "user": auth._user_public(user)}
+
+
+@app.post("/auth/login")
+def login(data: LoginRequest):
+    user = db.get_user_by_username(data.username.strip())
+    if not user or not auth.verify_password(data.password, user["password_hash"]):
+        raise HTTPException(401, "Invalid username or password")
+    token = auth.create_access_token(user["id"], bool(user.get("is_admin")))
+    return {"token": token, "user": auth._user_public(user)}
+
+
+@app.get("/auth/me")
+def get_me(current_user: dict = Depends(auth.get_current_user)):
+    return auth._user_public(current_user)
+
+
 # ── Speaker Endpoints ──────────────────────────────────────────────────────
 
 @app.get("/speakers")
-def get_speakers():
-    return db.list_speakers()
+def get_speakers(current_user: dict = Depends(auth.get_current_user)):
+    ctx = _ctx(current_user)
+    return db.list_speakers(user_id=ctx["user_id"], is_admin=ctx["is_admin"])
 
 
 @app.post("/speakers")
-def create_speaker(data: SpeakerCreate):
+def create_speaker(data: SpeakerCreate, current_user: dict = Depends(auth.get_current_user)):
+    ctx = _ctx(current_user)
     return db.create_speaker(
-        name=data.name, age=data.age, gender=data.gender, district=data.district
+        name=data.name,
+        user_id=ctx["user_id"],
+        age=data.age,
+        gender=data.gender,
+        district=data.district,
     )
 
 
 @app.delete("/speakers/{speaker_id}")
-def delete_speaker(speaker_id: str):
-    if not db.delete_speaker(speaker_id):
+def delete_speaker(speaker_id: str, current_user: dict = Depends(auth.get_current_user)):
+    ctx = _ctx(current_user)
+    if not db.delete_speaker(speaker_id, user_id=ctx["user_id"], is_admin=ctx["is_admin"]):
         raise HTTPException(404, "Speaker not found")
     return {"ok": True}
 
@@ -91,6 +166,7 @@ def process_and_transcribe_bg(tmp_path: str, recording_id: int, output_name: str
 
         db.update_recording(
             recording_id,
+            _internal=True,
             audio_path=audio_path,
             duration=duration,
             whisper_transcript=transcript,
@@ -112,6 +188,7 @@ def process_and_transcribe_bg(tmp_path: str, recording_id: int, output_name: str
                 pass
         db.update_recording(
             recording_id,
+            _internal=True,
             processing_status="error",
             processing_error=str(e),
             duration=None,
@@ -120,6 +197,7 @@ def process_and_transcribe_bg(tmp_path: str, recording_id: int, output_name: str
         print(f"Error processing background recording {recording_id}: {e}")
         db.update_recording(
             recording_id,
+            _internal=True,
             processing_status="error",
             processing_error=str(e),
             duration=None,
@@ -138,8 +216,10 @@ async def create_recording(
     speaker_id: str = Form(...),
     audio: UploadFile = File(...),
     emotion: str = Form("neutral"),
+    current_user: dict = Depends(auth.get_current_user),
 ):
-    if not db.get_speaker(speaker_id):
+    ctx = _ctx(current_user)
+    if not db.get_speaker(speaker_id, user_id=ctx["user_id"], is_admin=ctx["is_admin"]):
         raise HTTPException(404, "Speaker not found")
     if emotion not in VALID_EMOTIONS:
         emotion = "neutral"
@@ -184,30 +264,40 @@ async def create_recording(
 def get_recordings(
     status: str | None = Query(None),
     speaker_id: str | None = Query(None),
+    current_user: dict = Depends(auth.get_current_user),
 ):
-    return db.list_recordings(status=status, speaker_id=speaker_id)
+    ctx = _ctx(current_user)
+    return db.list_recordings(
+        status=status,
+        speaker_id=speaker_id,
+        user_id=ctx["user_id"],
+        is_admin=ctx["is_admin"],
+    )
 
 
 @app.get("/recordings/count")
-def get_recording_counts():
+def get_recording_counts(current_user: dict = Depends(auth.get_current_user)):
+    ctx = _ctx(current_user)
     return {
-        "pending": db.count_recordings("pending"),
-        "accepted": db.count_recordings("accepted"),
-        "total": db.count_recordings(),
+        "pending": db.count_recordings("pending", user_id=ctx["user_id"], is_admin=ctx["is_admin"]),
+        "accepted": db.count_recordings("accepted", user_id=ctx["user_id"], is_admin=ctx["is_admin"]),
+        "total": db.count_recordings(user_id=ctx["user_id"], is_admin=ctx["is_admin"]),
     }
 
 
 @app.get("/recordings/{recording_id}")
-def get_recording(recording_id: int):
-    rec = db.get_recording(recording_id)
+def get_recording(recording_id: int, current_user: dict = Depends(auth.get_current_user)):
+    ctx = _ctx(current_user)
+    rec = db.get_recording(recording_id, user_id=ctx["user_id"], is_admin=ctx["is_admin"])
     if not rec:
         raise HTTPException(404, "Recording not found")
     return rec
 
 
 @app.get("/recordings/{recording_id}/audio")
-def get_recording_audio(recording_id: int):
-    rec = db.get_recording(recording_id)
+def get_recording_audio(recording_id: int, current_user: dict = Depends(auth.get_current_user)):
+    ctx = _ctx(current_user)
+    rec = db.get_recording(recording_id, user_id=ctx["user_id"], is_admin=ctx["is_admin"])
     if not rec:
         raise HTTPException(404, "Recording not found")
     if rec.get("processing_status") != "ready":
@@ -218,7 +308,12 @@ def get_recording_audio(recording_id: int):
 
 
 @app.patch("/recordings/{recording_id}")
-def update_recording(recording_id: int, data: RecordingUpdate):
+def update_recording(
+    recording_id: int,
+    data: RecordingUpdate,
+    current_user: dict = Depends(auth.get_current_user),
+):
+    ctx = _ctx(current_user)
     fields = {}
     if data.final_transcript is not None:
         fields["final_transcript"] = data.final_transcript
@@ -230,15 +325,18 @@ def update_recording(recording_id: int, data: RecordingUpdate):
         if data.emotion not in VALID_EMOTIONS:
             raise HTTPException(400, "Invalid emotion")
         fields["emotion"] = data.emotion
-    rec = db.update_recording(recording_id, **fields)
+    rec = db.update_recording(
+        recording_id, user_id=ctx["user_id"], is_admin=ctx["is_admin"], **fields
+    )
     if not rec:
         raise HTTPException(404, "Recording not found")
     return rec
 
 
 @app.delete("/recordings/{recording_id}")
-def delete_recording(recording_id: int):
-    if not db.delete_recording(recording_id):
+def delete_recording(recording_id: int, current_user: dict = Depends(auth.get_current_user)):
+    ctx = _ctx(current_user)
+    if not db.delete_recording(recording_id, user_id=ctx["user_id"], is_admin=ctx["is_admin"]):
         raise HTTPException(404, "Recording not found")
     return {"ok": True}
 
@@ -246,7 +344,10 @@ def delete_recording(recording_id: int):
 # ── Transliteration ────────────────────────────────────────────────────────
 
 @app.get("/transliterate")
-async def transliterate(q: str = Query(..., min_length=1)):
+async def transliterate(
+    q: str = Query(..., min_length=1),
+    current_user: dict = Depends(auth.get_current_user),
+):
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             res = await client.get(GOOGLE_INPUT_TOOLS_URL, params={"text": q})
@@ -261,7 +362,7 @@ async def transliterate(q: str = Query(..., min_length=1)):
 # ── Settings Endpoints ─────────────────────────────────────────────────────
 
 @app.get("/settings")
-def get_settings():
+def get_settings(current_user: dict = Depends(auth.require_admin)):
     settings = db.get_all_settings()
     token = settings.pop("hf_token", None)
     if token:
@@ -272,7 +373,7 @@ def get_settings():
 
 
 @app.put("/settings")
-def update_settings(data: SettingsUpdate):
+def update_settings(data: SettingsUpdate, current_user: dict = Depends(auth.require_admin)):
     if data.hf_token is not None:
         db.set_setting("hf_token", data.hf_token)
     if data.hf_repo is not None:
@@ -283,7 +384,7 @@ def update_settings(data: SettingsUpdate):
 # ── Sync Endpoint ──────────────────────────────────────────────────────────
 
 @app.post("/sync")
-def sync_to_hub():
+def sync_to_hub(current_user: dict = Depends(auth.require_admin)):
     result = hf_sync.sync_to_hub()
     if not result["success"]:
         raise HTTPException(400, result["error"])

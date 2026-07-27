@@ -25,3 +25,16 @@ echo ""
 echo "Press Ctrl+C to stop both servers."
 
 wait
+
+
+# # SSH
+# ssh -i ac.pem admin@ec2-13-60-215-83.eu-north-1.compute.amazonaws.com
+
+# # logs
+# sudo docker-compose -f ~/voice_collector/docker-compose.yml logs -f
+
+# # restart
+# cd ~/voice_collector && sudo docker-compose restart
+
+# # update after git push
+# cd ~/voice_collector && git pull && sudo docker-compose up -d --build

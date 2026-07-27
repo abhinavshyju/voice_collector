@@ -12,6 +12,9 @@ VALID_EMOTIONS = frozenset({
     "neutral", "happy", "sad", "angry", "fearful", "surprised", "disgusted", "calm",
 })
 
+ADMIN_USERNAME = "spidy"
+DEFAULT_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Sachuachu@2004")
+
 
 def get_connection() -> sqlite3.Connection:
     os.makedirs(DB_DIR, exist_ok=True)
@@ -34,6 +37,7 @@ def _migrate(conn: sqlite3.Connection):
         ("recordings", "processing_error", "TEXT"),
         ("recordings", "emotion", "TEXT NOT NULL DEFAULT 'neutral'"),
         ("recordings", "synced_at", "TEXT"),
+        ("speakers", "user_id", "TEXT REFERENCES users(id)"),
     ]
     for table, column, col_type in migrations:
         if not _column_exists(conn, table, column):
@@ -50,10 +54,38 @@ def _migrate(conn: sqlite3.Connection):
     """)
 
 
+def _seed_admin(conn: sqlite3.Connection):
+    import bcrypt
+
+    row = conn.execute(
+        "SELECT id FROM users WHERE username = ?", (ADMIN_USERNAME,)
+    ).fetchone()
+    if row:
+        return
+    user_id = str(uuid.uuid4())
+    password_hash = bcrypt.hashpw(
+        DEFAULT_ADMIN_PASSWORD.encode(), bcrypt.gensalt(rounds=12)
+    ).decode()
+    conn.execute(
+        """INSERT INTO users (id, name, username, password_hash, is_admin)
+           VALUES (?, ?, ?, ?, 1)""",
+        (user_id, "Admin", ADMIN_USERNAME, password_hash),
+    )
+
+
 def init_db():
     """Create tables if they don't exist."""
     conn = get_connection()
     conn.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            is_admin INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE TABLE IF NOT EXISTS speakers (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -83,25 +115,70 @@ def init_db():
         );
     """)
     _migrate(conn)
+    _seed_admin(conn)
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_recordings_processing ON recordings(processing_status)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_speakers_user ON speakers(user_id)
     """)
     conn.commit()
     conn.close()
 
 
-def _recording_row_to_dict(row: sqlite3.Row) -> dict:
+def _user_row_to_dict(row: sqlite3.Row) -> dict:
     return dict(row)
+
+
+# ── User CRUD ───────────────────────────────────────────────────────────────
+
+def create_user(name: str, username: str, password_hash: str, is_admin: bool = False) -> dict:
+    conn = get_connection()
+    user_id = str(uuid.uuid4())
+    try:
+        conn.execute(
+            """INSERT INTO users (id, name, username, password_hash, is_admin)
+               VALUES (?, ?, ?, ?, ?)""",
+            (user_id, name, username, password_hash, 1 if is_admin else 0),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    except sqlite3.IntegrityError:
+        conn.close()
+        raise ValueError("Username already taken")
+    conn.close()
+    return _user_row_to_dict(row)
+
+
+def get_user_by_id(user_id: str) -> dict | None:
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    conn.close()
+    return _user_row_to_dict(row) if row else None
+
+
+def get_user_by_username(username: str) -> dict | None:
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+    conn.close()
+    return _user_row_to_dict(row) if row else None
 
 
 # ── Speaker CRUD ────────────────────────────────────────────────────────────
 
-def create_speaker(name: str, age: int = None, gender: str = None, district: str = None) -> dict:
+def create_speaker(
+    name: str,
+    user_id: str,
+    age: int = None,
+    gender: str = None,
+    district: str = None,
+) -> dict:
     conn = get_connection()
     speaker_id = str(uuid.uuid4())[:8]
     conn.execute(
-        "INSERT INTO speakers (id, name, age, gender, district) VALUES (?, ?, ?, ?, ?)",
-        (speaker_id, name, age, gender, district),
+        """INSERT INTO speakers (id, name, age, gender, district, user_id)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (speaker_id, name, age, gender, district, user_id),
     )
     conn.commit()
     row = conn.execute("SELECT * FROM speakers WHERE id = ?", (speaker_id,)).fetchone()
@@ -109,22 +186,56 @@ def create_speaker(name: str, age: int = None, gender: str = None, district: str
     return dict(row)
 
 
-def list_speakers() -> list[dict]:
+def list_speakers(user_id: str | None = None, is_admin: bool = False) -> list[dict]:
     conn = get_connection()
-    rows = conn.execute("SELECT * FROM speakers ORDER BY created_at DESC").fetchall()
+    if is_admin:
+        rows = conn.execute("""
+            SELECT s.*, u.name AS owner_name, u.username AS owner_username
+            FROM speakers s
+            LEFT JOIN users u ON s.user_id = u.id
+            ORDER BY s.created_at DESC
+        """).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM speakers WHERE user_id = ? ORDER BY created_at DESC",
+            (user_id,),
+        ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
-def get_speaker(speaker_id: str) -> dict | None:
+def get_speaker(speaker_id: str, user_id: str | None = None, is_admin: bool = False) -> dict | None:
     conn = get_connection()
-    row = conn.execute("SELECT * FROM speakers WHERE id = ?", (speaker_id,)).fetchone()
+    if is_admin:
+        row = conn.execute(
+            """SELECT s.*, u.name AS owner_name, u.username AS owner_username
+               FROM speakers s
+               LEFT JOIN users u ON s.user_id = u.id
+               WHERE s.id = ?""",
+            (speaker_id,),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT * FROM speakers WHERE id = ? AND user_id = ?",
+            (speaker_id, user_id),
+        ).fetchone()
     conn.close()
     return dict(row) if row else None
 
 
-def delete_speaker(speaker_id: str) -> bool:
+def delete_speaker(speaker_id: str, user_id: str | None = None, is_admin: bool = False) -> bool:
     conn = get_connection()
+    if is_admin:
+        exists = conn.execute("SELECT id FROM speakers WHERE id = ?", (speaker_id,)).fetchone()
+    else:
+        exists = conn.execute(
+            "SELECT id FROM speakers WHERE id = ? AND user_id = ?",
+            (speaker_id, user_id),
+        ).fetchone()
+    if not exists:
+        conn.close()
+        return False
+
     rows = conn.execute(
         "SELECT audio_path FROM recordings WHERE speaker_id = ?", (speaker_id,)
     ).fetchall()
@@ -141,6 +252,12 @@ def delete_speaker(speaker_id: str) -> bool:
 
 
 # ── Recording CRUD ──────────────────────────────────────────────────────────
+
+def _recording_scope_clause(is_admin: bool, user_id: str | None) -> tuple[str, list]:
+    if is_admin:
+        return "", []
+    return " AND s.user_id = ?", [user_id]
+
 
 def create_recording(
     speaker_id: str,
@@ -168,7 +285,10 @@ def create_recording(
 
 
 def _enrich_recording(rec: dict) -> dict:
-    speaker = get_speaker(rec["speaker_id"])
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM speakers WHERE id = ?", (rec["speaker_id"],)).fetchone()
+    conn.close()
+    speaker = dict(row) if row else None
     rec["speaker_name"] = speaker["name"] if speaker else "unknown"
     if speaker:
         rec["speaker_age"] = speaker.get("age")
@@ -177,16 +297,25 @@ def _enrich_recording(rec: dict) -> dict:
     return rec
 
 
-def list_recordings(status: str = None, speaker_id: str = None) -> list[dict]:
+def list_recordings(
+    status: str = None,
+    speaker_id: str = None,
+    user_id: str | None = None,
+    is_admin: bool = False,
+) -> list[dict]:
     conn = get_connection()
-    query = """
+    scope, scope_params = _recording_scope_clause(is_admin, user_id)
+    owner_cols = ", u.name AS owner_name, u.username AS owner_username" if is_admin else ""
+    user_join = " LEFT JOIN users u ON s.user_id = u.id" if is_admin else ""
+
+    query = f"""
         SELECT r.*, s.name AS speaker_name, s.age AS speaker_age,
-               s.gender AS speaker_gender, s.district AS speaker_district
+               s.gender AS speaker_gender, s.district AS speaker_district{owner_cols}
         FROM recordings r
-        LEFT JOIN speakers s ON r.speaker_id = s.id
-        WHERE 1=1
+        LEFT JOIN speakers s ON r.speaker_id = s.id{user_join}
+        WHERE 1=1{scope}
     """
-    params = []
+    params = list(scope_params)
     if status:
         query += " AND r.status = ?"
         params.append(status)
@@ -199,21 +328,38 @@ def list_recordings(status: str = None, speaker_id: str = None) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def get_recording(recording_id: int) -> dict | None:
+def get_recording(
+    recording_id: int,
+    user_id: str | None = None,
+    is_admin: bool = False,
+) -> dict | None:
     conn = get_connection()
+    scope, scope_params = _recording_scope_clause(is_admin, user_id)
+    owner_cols = ", u.name AS owner_name, u.username AS owner_username" if is_admin else ""
+    user_join = " LEFT JOIN users u ON s.user_id = u.id" if is_admin else ""
+
     row = conn.execute(
-        """SELECT r.*, s.name AS speaker_name, s.age AS speaker_age,
-                  s.gender AS speaker_gender, s.district AS speaker_district
+        f"""SELECT r.*, s.name AS speaker_name, s.age AS speaker_age,
+                  s.gender AS speaker_gender, s.district AS speaker_district{owner_cols}
            FROM recordings r
-           LEFT JOIN speakers s ON r.speaker_id = s.id
-           WHERE r.id = ?""",
-        (recording_id,),
+           LEFT JOIN speakers s ON r.speaker_id = s.id{user_join}
+           WHERE r.id = ?{scope}""",
+        [recording_id, *scope_params],
     ).fetchone()
     conn.close()
     return dict(row) if row else None
 
 
-def update_recording(recording_id: int, **fields) -> dict | None:
+def update_recording(
+    recording_id: int,
+    user_id: str | None = None,
+    is_admin: bool = False,
+    _internal: bool = False,
+    **fields,
+) -> dict | None:
+    if not _internal and not get_recording(recording_id, user_id=user_id, is_admin=is_admin):
+        return None
+
     conn = get_connection()
     allowed = {
         "final_transcript", "status", "whisper_transcript", "duration", "audio_path",
@@ -224,27 +370,31 @@ def update_recording(recording_id: int, **fields) -> dict | None:
         updates.pop("emotion")
     if not updates:
         conn.close()
-        return get_recording(recording_id)
+        if _internal:
+            return get_recording(recording_id, is_admin=True)
+        return get_recording(recording_id, user_id=user_id, is_admin=is_admin)
+
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     values = list(updates.values()) + [recording_id]
     conn.execute(f"UPDATE recordings SET {set_clause} WHERE id = ?", values)
     conn.commit()
-    row = conn.execute(
-        """SELECT r.*, s.name AS speaker_name, s.age AS speaker_age,
-                  s.gender AS speaker_gender, s.district AS speaker_district
-           FROM recordings r
-           LEFT JOIN speakers s ON r.speaker_id = s.id
-           WHERE r.id = ?""",
-        (recording_id,),
-    ).fetchone()
     conn.close()
-    return dict(row) if row else None
+    if _internal:
+        return get_recording(recording_id, is_admin=True)
+    return get_recording(recording_id, user_id=user_id, is_admin=is_admin)
 
 
-def delete_recording(recording_id: int) -> bool:
+def delete_recording(
+    recording_id: int,
+    user_id: str | None = None,
+    is_admin: bool = False,
+) -> bool:
+    rec = get_recording(recording_id, user_id=user_id, is_admin=is_admin)
+    if not rec:
+        return False
+
     conn = get_connection()
-    rec = conn.execute("SELECT audio_path FROM recordings WHERE id = ?", (recording_id,)).fetchone()
-    if rec and rec["audio_path"] and os.path.exists(rec["audio_path"]):
+    if rec.get("audio_path") and os.path.exists(rec["audio_path"]):
         try:
             os.remove(rec["audio_path"])
         except OSError:
@@ -255,12 +405,27 @@ def delete_recording(recording_id: int) -> bool:
     return cur.rowcount > 0
 
 
-def count_recordings(status: str = None) -> int:
+def count_recordings(
+    status: str = None,
+    user_id: str | None = None,
+    is_admin: bool = False,
+) -> int:
     conn = get_connection()
+    scope, scope_params = _recording_scope_clause(is_admin, user_id)
     if status:
-        row = conn.execute("SELECT COUNT(*) as c FROM recordings WHERE status = ?", (status,)).fetchone()
+        row = conn.execute(
+            f"""SELECT COUNT(*) as c FROM recordings r
+                LEFT JOIN speakers s ON r.speaker_id = s.id
+                WHERE r.status = ?{scope}""",
+            [status, *scope_params],
+        ).fetchone()
     else:
-        row = conn.execute("SELECT COUNT(*) as c FROM recordings").fetchone()
+        row = conn.execute(
+            f"""SELECT COUNT(*) as c FROM recordings r
+                LEFT JOIN speakers s ON r.speaker_id = s.id
+                WHERE 1=1{scope}""",
+            scope_params,
+        ).fetchone()
     conn.close()
     return row["c"]
 
