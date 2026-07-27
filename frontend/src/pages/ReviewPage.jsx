@@ -308,7 +308,7 @@ export default function ReviewPage({ onToast, onCountUpdate, isAdmin }) {
                 {view === 'pending' ? (
                   <div style={{ padding: '0 4px' }}>
                     <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                      Whisper Transcript
+                      Auto Transcript
                     </div>
                     <p className="transcript" style={{ fontSize: 15, lineHeight: 1.6 }}>
                       {isPending ? (

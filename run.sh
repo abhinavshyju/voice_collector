@@ -3,6 +3,17 @@ set -e
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
+if [ -f "$DIR/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$DIR/.env"
+  set +a
+fi
+
+if [ -z "${HF_TOKEN:-}" ] && [ -z "${HUGGING_FACE_HUB_TOKEN:-}" ]; then
+  echo "⚠️  HF_TOKEN not set — accept the model license on Hugging Face and export HF_TOKEN"
+fi
+
 echo "🎙️  Voice Collector — Starting..."
 
 # Start backend

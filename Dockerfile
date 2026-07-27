@@ -36,7 +36,7 @@ RUN chmod +x /docker-entrypoint.sh \
     && rm -f /etc/nginx/sites-enabled/default
 
 ENV TORCH_NUM_THREADS=2
-ENV WHISPER_MODEL=abhinav-spidey/Whisper-ml-v1
+ENV ASR_MODEL=ai4bharat/indic-conformer-600m-multilingual
 
 EXPOSE 80 443
 

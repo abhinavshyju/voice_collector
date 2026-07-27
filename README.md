@@ -1,8 +1,16 @@
 # Voice Collector
 
-Malayalam TTS voice dataset collection app. Record audio, auto-transcribe with Whisper, review transcripts, and sync to Hugging Face.
+Malayalam TTS voice dataset collection app. Record audio, auto-transcribe with Indic Conformer, review transcripts, and sync to Hugging Face.
 
 ## Quick Start (Development)
+
+1. Accept the model license at [ai4bharat/indic-conformer-600m-multilingual](https://huggingface.co/ai4bharat/indic-conformer-600m-multilingual)
+2. Create a Hugging Face token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)
+3. Export it before starting the backend:
+
+```bash
+export HF_TOKEN=hf_your_token_here
+```
 
 ```bash
 # Backend
@@ -29,12 +37,20 @@ Or use the launcher:
 
 ### Requirements
 
-- **Instance:** `t3.large` (2 vCPU, 8 GB RAM) recommended for CPU Whisper
+- **Instance:** `t3.large` (2 vCPU, 8 GB RAM) recommended for CPU ASR (Indic Conformer 600M)
 - **Storage:** 50 GB gp3 EBS
 - **OS:** Ubuntu 24.04 LTS
 - **Port:** 80 (HTTP)
 
 ### Deploy
+
+1. Accept the model license at [ai4bharat/indic-conformer-600m-multilingual](https://huggingface.co/ai4bharat/indic-conformer-600m-multilingual)
+2. Create a `.env` file in the project root:
+
+```bash
+HF_TOKEN=hf_your_token_here
+JWT_SECRET=your-jwt-secret
+```
 
 ```bash
 git clone <your-repo>
@@ -93,7 +109,7 @@ Metadata CSV includes: `file_name`, `text`, `speaker_id`, `speaker_name`, `speak
 
 ```
 voice_collector/
-├── backend/          # FastAPI + Whisper + SQLite
+├── backend/          # FastAPI + Indic Conformer ASR + SQLite
 │   ├── main.py
 │   ├── db.py
 │   ├── audio_processor.py

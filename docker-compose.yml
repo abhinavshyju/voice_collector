@@ -11,10 +11,11 @@ services:
       - letsencrypt:/etc/letsencrypt:ro
     environment:
       - TORCH_NUM_THREADS=2
-      - WHISPER_MODEL=abhinav-spidey/Whisper-ml-v1
+      - ASR_MODEL=ai4bharat/indic-conformer-600m-multilingual
       - SSL_DOMAIN=vc.ratcat.in
       - SSL_SAN=DNS:localhost,DNS:vc.ratcat.in,DNS:ec2-13-60-215-83.eu-north-1.compute.amazonaws.com,IP:13.60.215.83
       - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - HF_TOKEN=${HF_TOKEN:-}
     restart: unless-stopped
 
   certbot:

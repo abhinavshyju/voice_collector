@@ -9,6 +9,7 @@ dependencies = [
     "pydub>=0.25",
     "transformers>=4.48",
     "torch>=2.5",
+    "torchaudio>=2.5",
     "huggingface-hub>=0.27",
     "soundfile>=0.13",
     "numpy>=2.0",
@@ -20,10 +21,13 @@ dependencies = [
     "httpx>=0.28",
     "pyjwt>=2.8",
     "bcrypt>=4.0",
+    "onnx==1.20.1",
+    "onnxruntime==1.20.1",
 ]
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
+torchaudio = { index = "pytorch-cpu" }
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
