@@ -1,0 +1,14 @@
+services:
+  voice-collector:
+    build: .
+    ports:
+      - "8080:80"
+    volumes:
+      - voice-data:/app/backend/data
+    environment:
+      - TORCH_NUM_THREADS=2
+      - WHISPER_MODEL=abhinav-spidey/Whisper-ml-v1
+    restart: unless-stopped
+
+volumes:
+  voice-data:
