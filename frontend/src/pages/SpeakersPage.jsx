@@ -52,7 +52,7 @@ export default function SpeakersPage({ activeSpeaker, onSelectSpeaker, onToast, 
     <div className="fade-in">
       <div className="page-header">
         <h1>Speakers</h1>
-        <p>Manage voice contributors</p>
+        <p>Select a speaker to start recording, reviewing, and building their dataset</p>
       </div>
 
       <div style={{ marginBottom: 20 }}>

@@ -159,30 +159,14 @@ export default function RecorderPage({ activeSpeaker, onToast, onCountUpdate }) 
   };
 
   if (!activeSpeaker) {
-    return (
-      <div className="fade-in">
-        <div className="page-header">
-          <h1>Record</h1>
-          <p>Capture voice samples</p>
-        </div>
-        <div className="empty-state">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-          <h3>No speaker selected</h3>
-          <p>Go to the Speakers tab and select a speaker first.</p>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return (
     <div className="fade-in">
       <div className="page-header">
         <h1>Record</h1>
-        <p>Capture voice samples</p>
-        <div className="speaker-badge">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-          {activeSpeaker.name}
-        </div>
+        <p>Capture voice samples for {activeSpeaker.name}</p>
       </div>
 
       <div className="record-area">

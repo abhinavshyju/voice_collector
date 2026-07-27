@@ -4,7 +4,7 @@ import AudioPlayer from '../components/AudioPlayer';
 import TranslitTextarea from '../components/TranslitTextarea';
 import ConfirmModal from '../components/ConfirmModal';
 
-export default function DatasetPage({ onToast }) {
+export default function DatasetPage({ activeSpeaker, onSpeakerUpdate, onToast }) {
   const [recordings, setRecordings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -18,16 +18,16 @@ export default function DatasetPage({ onToast }) {
     setLoading(true);
     try {
       const [recs, s] = await Promise.all([
-        api.getRecordings({ status: 'accepted' }),
+        api.getRecordings({ status: 'accepted', speaker_id: activeSpeaker.id }),
         api.getSettings(),
       ]);
       setRecordings(recs);
-      setSettings({ hf_token: '', hf_repo: s.hf_repo || '' });
+      setSettings({ hf_token: '', hf_repo: activeSpeaker.hf_repo || '' });
     } catch (err) {
       onToast(err.message, 'error');
     }
     setLoading(false);
-  }, [onToast]);
+  }, [onToast, activeSpeaker]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -44,14 +44,14 @@ export default function DatasetPage({ onToast }) {
 
   const handleSync = async () => {
     const s = await api.getSettings();
-    if (!s.hf_repo || !s.hf_token_masked) {
+    if (!activeSpeaker.hf_repo || !s.hf_token_masked) {
       setShowSettings(true);
       onToast('Configure HuggingFace settings first', 'error');
       return;
     }
     setSyncing(true);
     try {
-      const result = await api.syncToHub();
+      const result = await api.syncToHub(activeSpeaker.id);
       onToast(`Synced ${result.recordings_synced} recordings to ${result.repo}`, 'success');
       load();
     } catch (err) {
@@ -62,10 +62,11 @@ export default function DatasetPage({ onToast }) {
 
   const saveSettings = async () => {
     try {
-      const payload = {};
-      if (settings.hf_token) payload.hf_token = settings.hf_token;
-      if (settings.hf_repo) payload.hf_repo = settings.hf_repo;
-      await api.updateSettings(payload);
+      if (settings.hf_token) {
+        await api.updateSettings({ hf_token: settings.hf_token });
+      }
+      const updated = await api.updateSpeaker(activeSpeaker.id, { hf_repo: settings.hf_repo });
+      onSpeakerUpdate?.(updated);
       setShowSettings(false);
       onToast('Settings saved', 'success');
     } catch (err) {
@@ -94,7 +95,7 @@ export default function DatasetPage({ onToast }) {
     <div className="fade-in">
       <div className="page-header">
         <h1>Dataset</h1>
-        <p>{recordings.length} accepted recording{recordings.length !== 1 ? 's' : ''}</p>
+        <p>{recordings.length} accepted recording{recordings.length !== 1 ? 's' : ''} for {activeSpeaker.name}</p>
       </div>
 
       <div className="sync-bar">
@@ -118,11 +119,10 @@ export default function DatasetPage({ onToast }) {
         <div className="empty-state">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M4 7V4a2 2 0 0 1 2-2h8.5L20 7.5V20a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3"/><polyline points="14 2 14 8 20 8"/></svg>
           <h3>No accepted recordings</h3>
-          <p>Accept recordings from the Review Queue to build your dataset.</p>
+          <p>Accept recordings from the Review Queue to build this speaker&apos;s dataset.</p>
         </div>
       ) : (
         <>
-          {/* Desktop Table View */}
           <div className="dataset-desktop-view" style={{ overflowX: 'auto' }}>
             <table className="dataset-table">
               <thead>
@@ -131,7 +131,6 @@ export default function DatasetPage({ onToast }) {
                   <th>Audio</th>
                   <th>Duration</th>
                   <th>Emotion</th>
-                  <th>Speaker</th>
                   <th style={{ minWidth: 250 }}>Transcript</th>
                   <th>Synced</th>
                   <th></th>
@@ -148,7 +147,6 @@ export default function DatasetPage({ onToast }) {
                       </span>
                     </td>
                     <td><span className="emotion-badge">{rec.emotion || 'neutral'}</span></td>
-                    <td style={{ fontSize: 13 }}>{rec.speaker_name || rec.speaker_id}</td>
                     <td>
                       {editId === rec.id ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -191,7 +189,6 @@ export default function DatasetPage({ onToast }) {
             </table>
           </div>
 
-          {/* Mobile Cards View */}
           <div className="dataset-mobile-view">
             {recordings.map((rec, i) => (
               <div key={rec.id} className="dataset-card">
@@ -214,10 +211,6 @@ export default function DatasetPage({ onToast }) {
                 </div>
 
                 <div className="dataset-card-body">
-                  <div className="dataset-card-row">
-                    <span className="label">Speaker</span>
-                    <span className="value" style={{ fontSize: '13px' }}>{rec.speaker_name || rec.speaker_id}</span>
-                  </div>
                   <div className="dataset-card-row">
                     <span className="label">Specs</span>
                     <div className="value" style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
@@ -273,13 +266,16 @@ export default function DatasetPage({ onToast }) {
         <div className="modal-overlay" onClick={() => setShowSettings(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <h2>HuggingFace Settings</h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 4 }}>
+              Settings for {activeSpeaker.name}
+            </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div className="form-group">
-                <label>HF Write Token</label>
+                <label>HF Write Token (global)</label>
                 <input className="input" type="password" value={settings.hf_token} onChange={e => setSettings(p => ({...p, hf_token: e.target.value}))} placeholder="hf_..." />
               </div>
               <div className="form-group">
-                <label>Dataset Repo ID</label>
+                <label>Dataset Repo ID (this speaker)</label>
                 <input className="input" value={settings.hf_repo} onChange={e => setSettings(p => ({...p, hf_repo: e.target.value}))} placeholder="username/dataset-name" />
               </div>
               <div className="modal-actions">

@@ -38,6 +38,7 @@ def _migrate(conn: sqlite3.Connection):
         ("recordings", "emotion", "TEXT NOT NULL DEFAULT 'neutral'"),
         ("recordings", "synced_at", "TEXT"),
         ("speakers", "user_id", "TEXT REFERENCES users(id)"),
+        ("speakers", "hf_repo", "TEXT"),
     ]
     for table, column, col_type in migrations:
         if not _column_exists(conn, table, column):
@@ -221,6 +222,29 @@ def get_speaker(speaker_id: str, user_id: str | None = None, is_admin: bool = Fa
         ).fetchone()
     conn.close()
     return dict(row) if row else None
+
+
+def update_speaker(
+    speaker_id: str,
+    user_id: str | None = None,
+    is_admin: bool = False,
+    **fields,
+) -> dict | None:
+    if not get_speaker(speaker_id, user_id=user_id, is_admin=is_admin):
+        return None
+
+    allowed = {"hf_repo"}
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return get_speaker(speaker_id, user_id=user_id, is_admin=is_admin)
+
+    conn = get_connection()
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    values = list(updates.values()) + [speaker_id]
+    conn.execute(f"UPDATE speakers SET {set_clause} WHERE id = ?", values)
+    conn.commit()
+    conn.close()
+    return get_speaker(speaker_id, user_id=user_id, is_admin=is_admin)
 
 
 def delete_speaker(speaker_id: str, user_id: str | None = None, is_admin: bool = False) -> bool:
@@ -407,24 +431,30 @@ def delete_recording(
 
 def count_recordings(
     status: str = None,
+    speaker_id: str = None,
     user_id: str | None = None,
     is_admin: bool = False,
 ) -> int:
     conn = get_connection()
     scope, scope_params = _recording_scope_clause(is_admin, user_id)
+    speaker_clause = ""
+    speaker_params: list = []
+    if speaker_id:
+        speaker_clause = " AND r.speaker_id = ?"
+        speaker_params.append(speaker_id)
     if status:
         row = conn.execute(
             f"""SELECT COUNT(*) as c FROM recordings r
                 LEFT JOIN speakers s ON r.speaker_id = s.id
-                WHERE r.status = ?{scope}""",
-            [status, *scope_params],
+                WHERE r.status = ?{scope}{speaker_clause}""",
+            [status, *scope_params, *speaker_params],
         ).fetchone()
     else:
         row = conn.execute(
             f"""SELECT COUNT(*) as c FROM recordings r
                 LEFT JOIN speakers s ON r.speaker_id = s.id
-                WHERE 1=1{scope}""",
-            scope_params,
+                WHERE 1=1{scope}{speaker_clause}""",
+            [*scope_params, *speaker_params],
         ).fetchone()
     conn.close()
     return row["c"]

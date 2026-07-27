@@ -4,7 +4,7 @@ import csv
 import os
 from huggingface_hub import HfApi
 
-from db import list_recordings, get_all_settings, mark_recordings_synced
+from db import list_recordings, get_speaker, get_all_settings, mark_recordings_synced
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 METADATA_PATH = os.path.join(DATA_DIR, "metadata.csv")
@@ -13,9 +13,9 @@ README_PATH = os.path.join(DATA_DIR, "README.md")
 MIN_DURATION_S = 3.0
 
 
-def _eligible_recordings() -> list[dict]:
-    """Accepted recordings that meet duration requirements."""
-    recordings = list_recordings(status="accepted")
+def _eligible_recordings(speaker_id: str) -> list[dict]:
+    """Accepted recordings for a speaker that meet duration requirements."""
+    recordings = list_recordings(status="accepted", speaker_id=speaker_id, is_admin=True)
     return [
         r for r in recordings
         if r.get("duration") is not None and r["duration"] >= MIN_DURATION_S
@@ -53,8 +53,7 @@ def generate_metadata_csv(recordings: list[dict]) -> str:
     return METADATA_PATH
 
 
-def generate_readme(recordings: list[dict], repo_id: str) -> str:
-    speakers = {r["speaker_id"] for r in recordings}
+def generate_readme(recordings: list[dict], repo_id: str, speaker_name: str) -> str:
     emotions = sorted({r.get("emotion", "neutral") for r in recordings})
     content = f"""---
 license: mit
@@ -72,12 +71,12 @@ size_categories:
 
 # {repo_id}
 
-Malayalam TTS voice dataset collected via Voice Collector.
+Malayalam TTS voice dataset for **{speaker_name}**, collected via Voice Collector.
 
 ## Dataset Summary
 
 - **Recordings:** {len(recordings)}
-- **Speakers:** {len(speakers)}
+- **Speaker:** {speaker_name}
 - **Emotions:** {', '.join(emotions)}
 - **Target clip length:** 8–12 seconds (max 20s)
 - **Audio format:** 16 kHz mono WAV
@@ -108,22 +107,28 @@ ds = load_dataset("{repo_id}")
     return README_PATH
 
 
-def sync_to_hub() -> dict:
-    """Sync accepted recordings to a HuggingFace dataset repository."""
+def sync_to_hub(speaker_id: str) -> dict:
+    """Sync a speaker's accepted recordings to their HuggingFace dataset repository."""
+    speaker = get_speaker(speaker_id, is_admin=True)
+    if not speaker:
+        return {"success": False, "error": "Speaker not found."}
+
+    hf_repo = speaker.get("hf_repo")
     settings = get_all_settings()
     hf_token = settings.get("hf_token")
-    hf_repo = settings.get("hf_repo")
 
-    if not hf_token or not hf_repo:
-        return {"success": False, "error": "HuggingFace token or repo ID not configured."}
+    if not hf_token:
+        return {"success": False, "error": "HuggingFace token not configured."}
+    if not hf_repo:
+        return {"success": False, "error": "HuggingFace repo ID not configured for this speaker."}
 
-    recordings = _eligible_recordings()
+    recordings = _eligible_recordings(speaker_id)
     if not recordings:
-        return {"success": False, "error": "No accepted recordings (3s+) to sync."}
+        return {"success": False, "error": "No accepted recordings (3s+) to sync for this speaker."}
 
     try:
         generate_metadata_csv(recordings)
-        generate_readme(recordings, hf_repo)
+        generate_readme(recordings, hf_repo, speaker.get("name", speaker_id))
 
         api = HfApi(token=hf_token)
         api.create_repo(repo_id=hf_repo, repo_type="dataset", exist_ok=True)

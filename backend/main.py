@@ -77,6 +77,10 @@ class SpeakerCreate(BaseModel):
     district: str | None = None
 
 
+class SpeakerUpdate(BaseModel):
+    hf_repo: str | None = None
+
+
 class RecordingUpdate(BaseModel):
     final_transcript: str | None = None
     status: str | None = None
@@ -85,7 +89,10 @@ class RecordingUpdate(BaseModel):
 
 class SettingsUpdate(BaseModel):
     hf_token: str | None = None
-    hf_repo: str | None = None
+
+
+class SyncRequest(BaseModel):
+    speaker_id: str
 
 
 def _ctx(current_user: dict) -> dict:
@@ -155,6 +162,24 @@ def delete_speaker(speaker_id: str, current_user: dict = Depends(auth.get_curren
     if not db.delete_speaker(speaker_id, user_id=ctx["user_id"], is_admin=ctx["is_admin"]):
         raise HTTPException(404, "Speaker not found")
     return {"ok": True}
+
+
+@app.patch("/speakers/{speaker_id}")
+def update_speaker(
+    speaker_id: str,
+    data: SpeakerUpdate,
+    current_user: dict = Depends(auth.get_current_user),
+):
+    ctx = _ctx(current_user)
+    fields = {}
+    if data.hf_repo is not None:
+        fields["hf_repo"] = data.hf_repo
+    speaker = db.update_speaker(
+        speaker_id, user_id=ctx["user_id"], is_admin=ctx["is_admin"], **fields
+    )
+    if not speaker:
+        raise HTTPException(404, "Speaker not found")
+    return speaker
 
 
 # ── Recording Endpoints ────────────────────────────────────────────────────
@@ -276,12 +301,21 @@ def get_recordings(
 
 
 @app.get("/recordings/count")
-def get_recording_counts(current_user: dict = Depends(auth.get_current_user)):
+def get_recording_counts(
+    speaker_id: str | None = Query(None),
+    current_user: dict = Depends(auth.get_current_user),
+):
     ctx = _ctx(current_user)
     return {
-        "pending": db.count_recordings("pending", user_id=ctx["user_id"], is_admin=ctx["is_admin"]),
-        "accepted": db.count_recordings("accepted", user_id=ctx["user_id"], is_admin=ctx["is_admin"]),
-        "total": db.count_recordings(user_id=ctx["user_id"], is_admin=ctx["is_admin"]),
+        "pending": db.count_recordings(
+            "pending", speaker_id=speaker_id, user_id=ctx["user_id"], is_admin=ctx["is_admin"]
+        ),
+        "accepted": db.count_recordings(
+            "accepted", speaker_id=speaker_id, user_id=ctx["user_id"], is_admin=ctx["is_admin"]
+        ),
+        "total": db.count_recordings(
+            speaker_id=speaker_id, user_id=ctx["user_id"], is_admin=ctx["is_admin"]
+        ),
     }
 
 
@@ -376,16 +410,17 @@ def get_settings(current_user: dict = Depends(auth.require_admin)):
 def update_settings(data: SettingsUpdate, current_user: dict = Depends(auth.require_admin)):
     if data.hf_token is not None:
         db.set_setting("hf_token", data.hf_token)
-    if data.hf_repo is not None:
-        db.set_setting("hf_repo", data.hf_repo)
     return {"ok": True}
 
 
 # ── Sync Endpoint ──────────────────────────────────────────────────────────
 
 @app.post("/sync")
-def sync_to_hub(current_user: dict = Depends(auth.require_admin)):
-    result = hf_sync.sync_to_hub()
+def sync_to_hub(data: SyncRequest, current_user: dict = Depends(auth.require_admin)):
+    ctx = _ctx(current_user)
+    if not db.get_speaker(data.speaker_id, user_id=ctx["user_id"], is_admin=ctx["is_admin"]):
+        raise HTTPException(404, "Speaker not found")
+    result = hf_sync.sync_to_hub(data.speaker_id)
     if not result["success"]:
         raise HTTPException(400, result["error"])
     return result

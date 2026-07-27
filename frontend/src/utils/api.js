@@ -63,6 +63,7 @@ export const api = {
   // Speakers
   getSpeakers: () => request('/speakers'),
   createSpeaker: (data) => request('/speakers', { method: 'POST', body: JSON.stringify(data) }),
+  updateSpeaker: (id, data) => request(`/speakers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteSpeaker: (id) => request(`/speakers/${id}`, { method: 'DELETE' }),
 
   // Recordings
@@ -91,7 +92,10 @@ export const api = {
     const qs = new URLSearchParams(params).toString();
     return request(`/recordings${qs ? '?' + qs : ''}`);
   },
-  getRecordingCounts: () => request('/recordings/count'),
+  getRecordingCounts: (speakerId) => {
+    const qs = speakerId ? `?speaker_id=${encodeURIComponent(speakerId)}` : '';
+    return request(`/recordings/count${qs}`);
+  },
   updateRecording: (id, data) => request(`/recordings/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteRecording: (id) => request(`/recordings/${id}`, { method: 'DELETE' }),
   getAudioUrl: (id) => `${API_BASE}/recordings/${id}/audio`,
@@ -104,5 +108,5 @@ export const api = {
   updateSettings: (data) => request('/settings', { method: 'PUT', body: JSON.stringify(data) }),
 
   // Sync
-  syncToHub: () => request('/sync', { method: 'POST' }),
+  syncToHub: (speakerId) => request('/sync', { method: 'POST', body: JSON.stringify({ speaker_id: speakerId }) }),
 };

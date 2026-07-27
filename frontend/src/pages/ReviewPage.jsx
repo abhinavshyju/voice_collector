@@ -13,7 +13,10 @@ function durationBadgeClass(duration, processingStatus) {
   return 'duration-error';
 }
 
-export default function ReviewPage({ onToast, onCountUpdate, isAdmin }) {
+export default function ReviewPage({ activeSpeaker, onToast, onCountUpdate, isAdmin }) {
+  const speakerId = activeSpeaker.id;
+  const speakerParams = { speaker_id: speakerId };
+
   const [view, setView] = useState('pending');
   const [recordings, setRecordings] = useState([]);
   const [acceptedRecordings, setAcceptedRecordings] = useState([]);
@@ -27,22 +30,22 @@ export default function ReviewPage({ onToast, onCountUpdate, isAdmin }) {
   const loadPending = useCallback(async () => {
     setLoading(true);
     try {
-      setRecordings(await api.getRecordings({ status: 'pending' }));
+      setRecordings(await api.getRecordings({ status: 'pending', ...speakerParams }));
     } catch (err) {
       onToast(err.message, 'error');
     }
     setLoading(false);
-  }, [onToast]);
+  }, [onToast, speakerId]);
 
   const loadAccepted = useCallback(async () => {
     setLoading(true);
     try {
-      setAcceptedRecordings(await api.getRecordings({ status: 'accepted' }));
+      setAcceptedRecordings(await api.getRecordings({ status: 'accepted', ...speakerParams }));
     } catch (err) {
       onToast(err.message, 'error');
     }
     setLoading(false);
-  }, [onToast]);
+  }, [onToast, speakerId]);
 
   const load = useCallback(async () => {
     if (view === 'pending') await loadPending();
@@ -50,8 +53,8 @@ export default function ReviewPage({ onToast, onCountUpdate, isAdmin }) {
   }, [view, loadPending, loadAccepted]);
 
   useEffect(() => {
-    api.getRecordings({ status: 'accepted' }).then(setAcceptedRecordings).catch(() => {});
-  }, []);
+    api.getRecordings({ status: 'accepted', ...speakerParams }).then(setAcceptedRecordings).catch(() => {});
+  }, [speakerId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -67,7 +70,7 @@ export default function ReviewPage({ onToast, onCountUpdate, isAdmin }) {
 
     const interval = setInterval(async () => {
       try {
-        const data = await api.getRecordings({ status: 'pending' });
+        const data = await api.getRecordings({ status: 'pending', ...speakerParams });
         setRecordings(data);
       } catch (err) {
         onToast(err.message, 'error');
@@ -75,7 +78,7 @@ export default function ReviewPage({ onToast, onCountUpdate, isAdmin }) {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [recordings, onToast]);
+  }, [recordings, onToast, speakerId]);
 
   const canAccept = (rec) => rec.processing_status === 'ready' && rec.duration >= 3;
 
@@ -89,7 +92,7 @@ export default function ReviewPage({ onToast, onCountUpdate, isAdmin }) {
       onToast('Recording accepted', 'success');
       onCountUpdate?.();
       if (editId === rec.id) cancelEdit();
-      api.getRecordings({ status: 'accepted' }).then(setAcceptedRecordings).catch(() => {});
+      api.getRecordings({ status: 'accepted', ...speakerParams }).then(setAcceptedRecordings).catch(() => {});
     } catch (err) {
       onToast('Failed to accept: ' + err.message, 'error');
     }
@@ -127,7 +130,7 @@ export default function ReviewPage({ onToast, onCountUpdate, isAdmin }) {
     setRecordings(prev => prev.filter(r => !canAccept(r)));
     onToast(`Accepted ${ready.length} recording(s)`, 'success');
     onCountUpdate?.();
-    api.getRecordings({ status: 'accepted' }).then(setAcceptedRecordings).catch(() => {});
+    api.getRecordings({ status: 'accepted', ...speakerParams }).then(setAcceptedRecordings).catch(() => {});
   };
 
   const startEdit = (rec) => {
@@ -229,7 +232,6 @@ export default function ReviewPage({ onToast, onCountUpdate, isAdmin }) {
                       <span className={`duration-badge ${durationBadgeClass(rec.duration, rec.processing_status)}`}>
                         {isPending ? 'Processing...' : isError ? 'Error' : `${rec.duration?.toFixed(1)}s`}
                       </span>
-                      <span>{rec.speaker_name || rec.speaker_id}</span>
                       {isAdmin && rec.owner_username && (
                         <span style={{ color: 'var(--accent)' }}>@{rec.owner_username}</span>
                       )}

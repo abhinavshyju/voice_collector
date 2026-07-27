@@ -84,8 +84,13 @@ body { overflow: hidden; }
   display: inline-flex; align-items: center; gap: 6px;
   background: var(--accent-glow); color: var(--accent);
   padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
-  margin-top: 8px;
 }
+.speaker-context-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 24px; border-bottom: 1px solid var(--border);
+  background: rgba(8,8,12,0.6);
+}
+.speaker-context-bar .speaker-badge { margin-top: 0; }
 
 /* ── Cards ───────────────────────────────────── */
 .card {
