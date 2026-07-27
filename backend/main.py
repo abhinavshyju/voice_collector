@@ -16,8 +16,10 @@ import auth
 import audio_processor
 import transcriber
 import hf_sync
+import prompt_generator
 from audio_processor import AudioTooShortError
 from db import VALID_EMOTIONS
+from prompt_generator import PromptGeneratorError, PromptGeneratorNotConfigured
 
 GOOGLE_INPUT_TOOLS_URL = (
     "https://inputtools.google.com/request?itc=ml-t-i0-und&num=5"
@@ -373,6 +375,26 @@ def delete_recording(recording_id: int, current_user: dict = Depends(auth.get_cu
     if not db.delete_recording(recording_id, user_id=ctx["user_id"], is_admin=ctx["is_admin"]):
         raise HTTPException(404, "Recording not found")
     return {"ok": True}
+
+
+# ── Recording Prompts ─────────────────────────────────────────────────────
+
+@app.get("/prompts/next")
+def get_next_prompt(
+    emotion: str = Query("neutral"),
+    exclude: list[str] = Query(default_factory=list),
+    current_user: dict = Depends(auth.get_current_user),
+):
+    if emotion not in VALID_EMOTIONS:
+        emotion = "neutral"
+    exclude = exclude[:10]
+    try:
+        text = prompt_generator.generate_prompt(emotion=emotion, exclude=exclude)
+        return {"text": text}
+    except PromptGeneratorNotConfigured:
+        raise HTTPException(503, "Prompt generation is not configured (GROQ_API_KEY missing)")
+    except PromptGeneratorError as e:
+        raise HTTPException(502, f"Failed to generate prompt: {e}")
 
 
 # ── Transliteration ────────────────────────────────────────────────────────

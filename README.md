@@ -10,6 +10,7 @@ Malayalam TTS voice dataset collection app. Record audio, auto-transcribe with I
 
 ```bash
 export HF_TOKEN=hf_your_token_here
+export GROQ_API_KEY=gsk_your_groq_key_here
 ```
 
 ```bash
@@ -49,6 +50,7 @@ Or use the launcher:
 
 ```bash
 HF_TOKEN=hf_your_token_here
+GROQ_API_KEY=gsk_your_groq_key_here
 JWT_SECRET=your-jwt-secret
 ```
 

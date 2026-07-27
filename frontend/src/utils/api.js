@@ -100,6 +100,13 @@ export const api = {
   deleteRecording: (id) => request(`/recordings/${id}`, { method: 'DELETE' }),
   getAudioUrl: (id) => `${API_BASE}/recordings/${id}/audio`,
 
+  // Recording prompts
+  getNextPrompt: (emotion, exclude = []) => {
+    const params = new URLSearchParams({ emotion });
+    exclude.forEach(t => params.append('exclude', t));
+    return request(`/prompts/next?${params}`);
+  },
+
   // Transliteration
   transliterate: (word) => request(`/transliterate?q=${encodeURIComponent(word)}`),
 
