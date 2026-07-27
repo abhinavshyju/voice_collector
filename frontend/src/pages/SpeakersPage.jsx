@@ -29,6 +29,8 @@ export default function SpeakersPage({ activeSpeaker, onSelectSpeaker, onToast, 
       setSpeakers(prev => [s, ...prev]);
       setShowModal(false);
       setForm({ name: '', age: '', gender: '', district: '' });
+      onSelectSpeaker(s);
+      onToast?.(`${s.name} created — ready to record`, 'success');
     } catch (err) { onToast?.(err.message, 'error'); }
   };
 
@@ -52,7 +54,7 @@ export default function SpeakersPage({ activeSpeaker, onSelectSpeaker, onToast, 
     <div className="fade-in">
       <div className="page-header">
         <h1>Speakers</h1>
-        <p>Select a speaker to start recording, reviewing, and building their dataset</p>
+        <p>Pick a speaker or create one, then record and review their samples</p>
       </div>
 
       <div style={{ marginBottom: 20 }}>
@@ -112,7 +114,7 @@ export default function SpeakersPage({ activeSpeaker, onSelectSpeaker, onToast, 
               {activeSpeaker?.id === s.id && (
                 <div className="speaker-badge" style={{ marginTop: 12 }}>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-                  Active
+                  Selected
                 </div>
               )}
             </div>

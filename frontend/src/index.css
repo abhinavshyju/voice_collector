@@ -62,6 +62,7 @@ body { overflow: hidden; }
 .nav-item svg { width: 22px; height: 22px; }
 .nav-item.active { color: var(--accent); }
 .nav-item:hover { color: var(--text-secondary); }
+.nav-item-disabled { opacity: 0.4; }
 .nav-badge {
   position: absolute; top: 2px; right: 8px;
   background: var(--accent); color: #fff; font-size: 10px; font-weight: 700;
